@@ -63,16 +63,22 @@ if(__name__== "__main__"):
   df = df.withColumn("aircraftid", substring("flightid", 21, 6))
   df = df.withColumn("timeid", date_format(col("date"), "yyyy-MM-dd"))
   
+  print(df.count())
   #df.show(10)
 
   avg_sensors = df.groupBy("aircraftid", "timeid").avg("value")
+
+  print(avg_sensors.count())
   #avg_sensors.show(10)
 
-  final = avg_sensors.join(DW, ['aircraftid','timeid'])
+  final = DW.join(avg_sensors, ['aircraftid','timeid'], how = "left").fillna(0)
   #final.show(10)
 
-  final = final.withColumn("Label", lit(0))
-  final = final.withColumn("Label", when((DW["timeid"] == final["timeid"]) & (DW["unscheduledoutofservice"] == 1.0), lit(1)).otherwise(col("Label")))
+  print(final.count())
+
+
+  final = final.withColumn("Label", col('unscheduledoutofservice').cast('int'))
+  #final = final.withColumn("Label", when((DW["timeid"] == final["timeid"]) & (DW["unscheduledoutofservice"] == 1.0), lit(1)).otherwise(col("Label")))
 
   #final.show(10)
 
@@ -124,7 +130,11 @@ if(__name__== "__main__"):
 
   final_sin_nul = final2.na.drop()
 
-  final_sin_nul.show(50)
+  #final_sin_nul.show(50)
+
+  print(final_sin_nul.count())
+
+  print(final_sin_nul.filter(final_sin_nul['label7days']==1).count())
 
   
 
