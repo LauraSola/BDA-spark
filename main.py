@@ -62,12 +62,19 @@ if(__name__== "__main__"):
   final = final.withColumn("Label", lit(0))
   final = final.withColumn("Label", when((DW["timeid"] == final["timeid"]) & (DW["unscheduledoutofservice"] == 1), lit(1)).otherwise(col("Label")))
 
-  from pyspark.sql.functions import lag
-  from pyspark.sql.window import Window
+  final = final.withColumn("timeid", date_format(col("timeid")))
+  start, end = final.select(min("timeid"), max("timeid")).first() # First and last dates of the dataset
 
-  seven_days = Window.partitionBy("aircraftid").orderBy("timeid").rowsBetween(-7, 0)
-  final = final.withColumn("7days", lag("Label").over(seven_days))
-  final = final.withColumn("Label", when((col("Label") == 1) | (col("7days") == 1), 1).otherwise(col("Label")))
-  final = final.drop("7days")
+  time_df = ("timeid", expr("sequence(start, end, interval 1 day)")) # Dataset with only dates
+  final2 = final.join(time_df, "timeid", "inner") # Join of aircraft table and dates table
 
-  final.show(20)
+  final2.show(10)
+
+  final2.orderBy(("aircraftid", "dateid").desc())
+
+  id_partitions = Window.partitionBy("aircraftid").orderBy("timeid").rangeBetween(-7, 0)
+  final2 = final2.withColumn("label_7days", lag("Label").over(id_partitions))
+  final2 = final2.withColumn("Label", when((col("Label") == 1) | (col("label_7days") == 1), 1).otherwise(col("Label")))
+  final2 = final2.drop("label_7days")
+
+  final2.show()
