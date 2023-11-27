@@ -58,4 +58,8 @@ if(__name__== "__main__"):
   #avg_sensors.show(10)
 
   final = avg_sensors.join(DW, ['aircraftid','timeid'])
+  
+  final = final.withColumn("Label", lit(0))
+  final = final.withColumn("Label", when((DW["timeid"] == final["timeid"]) & (DW["unscheduledoutofservice"] == 1), lit(1)).otherwise(col("Label")))
+
   final.show(10)
