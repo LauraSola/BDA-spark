@@ -62,4 +62,12 @@ if(__name__== "__main__"):
   final = final.withColumn("Label", lit(0))
   final = final.withColumn("Label", when((DW["timeid"] == final["timeid"]) & (DW["unscheduledoutofservice"] == 1), lit(1)).otherwise(col("Label")))
 
-  final.show(10)
+  from pyspark.sql.functions import lag
+  from pyspark.sql.window import Window
+
+  seven_days = Window.partitionBy("aircraftid").orderBy("timeid").rowsBetween(-7, 0)
+  final = final.withColumn("7days", lag("Label").over(seven_days))
+  final = final.withColumn("Label", when((col("Label") == 1) | (col("7days") == 1), 1).otherwise(col("Label")))
+  final = final.drop("7days")
+
+  final.show(20)
