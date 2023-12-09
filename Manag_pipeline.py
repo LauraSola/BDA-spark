@@ -10,15 +10,7 @@ from pyspark.sql.functions import input_file_name, expr, substring, col, date_fo
 from datetime import timedelta
 
 
-def management_pipeline(OI, DW, df):
-    # Selection of the attributes we'll need from DW
-    DW = DW.select(['aircraftid', 'timeid', 'flightcycles', 'flighthours', 'delayedminutes'])
-
-    # Selection and transformation attributes from the operation
-    OI = OI.filter("subsystem = '3453'").withColumn("starttime", date_format(col("starttime"), "yyyy-MM-dd"))\
-        .withColumnRenamed('aircraftregistration', 'aircraftid').withColumnRenamed('starttime', 'timeid') \
-        .select('aircraftid', 'timeid').distinct().withColumn("label", lit(1))
-
+def dataframe_construction(DW, df):
     # Selection of the last letters of the file name (to extract the flightid) and writing the date in the correct format
     df = df.withColumn("flightid", expr(f"substring(input_file_name(),  length(input_file_name()) - {30} + 1)"))
     df = df.withColumn("aircraftid", substring("flightid", 21, 6))
@@ -29,6 +21,20 @@ def management_pipeline(OI, DW, df):
 
     # Join between data from the csv (sensors) and DW (KPIs)
     df2 = DW.join(avg_sensors, ['aircraftid','timeid'], how = "inner")
+
+    return df2
+
+
+def management_pipeline(OI, DW, df):
+    # Selection of the attributes we'll need from DW
+    DW = DW.select(['aircraftid', 'timeid', 'flightcycles', 'flighthours', 'delayedminutes'])
+
+    # Selection and transformation attributes from the operation
+    OI = OI.filter("subsystem = '3453'").withColumn("starttime", date_format(col("starttime"), "yyyy-MM-dd"))\
+        .withColumnRenamed('aircraftregistration', 'aircraftid').withColumnRenamed('starttime', 'timeid') \
+        .select('aircraftid', 'timeid').distinct().withColumn("label", lit(1))
+
+    df2 = dataframe_construction(DW, df)
 
     # Join to add the column with the label to the df with the KPIs and sensors
     labels_df = df2.join(OI, ['aircraftid','timeid'], how = "left")

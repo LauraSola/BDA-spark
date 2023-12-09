@@ -9,9 +9,10 @@ from pyspark.sql.window import Window
 from datetime import timedelta
 
 import Manag_pipeline
+import RT_pipeline
 
 # Building a spark session
-HADOOP_HOME = "C:\\Users\\Maria\\OneDrive\\Escritorio\\BDA\\Projecte2\\CodeSkeleton\\resources\\hadoop_home"
+HADOOP_HOME = "C:/Users/Maria/OneDrive/Escritorio/BDA/Projecte2/CodeSkeleton/resources/hadoop_home"
 PYSPARK_PYTHON = "python3.11"
 PYSPARK_DRIVER_PYTHON = "python3.11"
 
@@ -20,7 +21,7 @@ sys.path.append(HADOOP_HOME + "\\bin")
 os.environ["PYSPARK_PYTHON"] = PYSPARK_PYTHON
 os.environ["PYSPARK_DRIVER_PYTHON"] = PYSPARK_DRIVER_PYTHON
 
-POSTGRESQL_DRIVER_PATH = "C:\\Users\\Maria\\OneDrive\\Escritorio\\BDA\\Projecte2\\CodeSkeleton\\resources\\postgresql-42.2.8.jar"
+POSTGRESQL_DRIVER_PATH = "C:/Users/Maria/OneDrive/Escritorio/BDA/Projecte2/CodeSkeleton/resources/postgresql-42.2.8.jar"
 conf = SparkConf() \
       .set("spark.master","local") \
       .set("spark.app.name","DBALab") \
@@ -47,8 +48,16 @@ DW = (spark.read.format("jdbc") \
              .load())
 
 # Loading the information about the sensors from all csv
-csv_files = "C:\\Users\\Maria\\OneDrive\\Escritorio\\BDA\\Python\\resources\\trainingData\\trainingData\\trainingData\\*.csv"
+csv_files = "C:\\Users\\Maria\\OneDrive\\Escritorio\\BDA\\Projecte2\\CodeSkeleton\\resources\\trainingData\\trainingData\\trainingData\\*.csv"
 df = spark.read.csv(csv_files, header=True, inferSchema=True, sep=";")
+df.show(5)
 
 if(__name__== "__main__"):
-    data_matrix = Manag_pipeline.management_pipeline(OI, DW, df)
+   data_matrix = Manag_pipeline.management_pipeline(OI, DW, df)
+
+   aircraft = input("Aircraft model: ")
+   day = input("Day in format yyyy-mm-dd: ")
+   dataframe = Manag_pipeline.dataframe_construction(DW, df)
+   if RT_pipeline.valid_data(aircraft, day, dataframe):
+      new_dataframe = RT_pipeline.add_row(aircraft, day, dataframe)
+      # new_dataframe_label = RT_pipeline.add_row(aircraft, day, data_matrix) si s'ha d'afegir la columna labeled
