@@ -63,10 +63,15 @@ if(__name__== "__main__"):
 
   train_split, test_split = data_matrix.randomSplit(weights = [0.80, 0.20], seed = 13)
 
+  evaluator = BinaryClassificationEvaluator(labelCol="label_prop", metricName="areaUnderROC")
+
   experiment_name = "/spark-models-tests/"
   mlflow.set_experiment(experiment_name)
   
-  def train_model(params, classifier, train_split, test_split, model_name):
+  def train_model(params, classifier, train_split, model_name):
+
+    train2_split, val_split = train_split.randomSplit(weights = [0.80, 0.20], seed = 13)
+
     global iters
     name = f"{model_name}_iteration_{iters}"
     iters +=1
@@ -83,11 +88,11 @@ if(__name__== "__main__"):
 
       # Build the ML Pipeline
       pipeline = Pipeline(stages=[vecAssembler, clf])
-      model = pipeline.fit(train_split)
+      model = pipeline.fit(train2_split)
 
       # Evaluate the model
-      evaluator = BinaryClassificationEvaluator(labelCol="label_prop", metricName="areaUnderROC")
-      predictions = model.transform(test_split)
+      
+      predictions = model.transform(val_split)
       validation_metric = evaluator.evaluate(predictions)
 
       mlflow.log_metrics({"AUC": validation_metric})
@@ -95,16 +100,18 @@ if(__name__== "__main__"):
     
       #mlflow.spark.save_model(model,name)
 
+      #mlflow.log_model()
+
 
       #print(validation_metric)
 
     return {'loss': -validation_metric, 'status': STATUS_OK}
 
-def train_with_hyperopt(train_function, space, max_evals, classifier, train_split, test_split, model_name):
+def train_with_hyperopt(train_function, space, max_evals, classifier, train_split, model_name):
     
     with mlflow.start_run(run_name = model_name):
         best_params = fmin(
-            fn=lambda params: train_function(params, classifier, train_split, test_split, model_name),
+            fn=lambda params: train_function(params, classifier, train_split, model_name),
             space=space,
             algo=tpe.suggest,
             max_evals=max_evals
@@ -120,17 +127,17 @@ dt_space = {
     'maxBins': hp.uniform('maxBins', 8, 64),
 }
 
-best_dt_params = train_with_hyperopt(train_model, dt_space, 2, DecisionTreeClassifier, train_split, test_split, "decision_tree")
+best_dt_params = train_with_hyperopt(train_model, dt_space, 2, DecisionTreeClassifier, train_split, "decision_tree")
 
-# iters = 1
-# # Random Forest Hyperopt
-# rf_space = {
-#     'numTrees': hp.choice('numTrees', range(5, 50)),
-#     'maxDepth': hp.uniform('maxDepth', 3, 11),
-#     'maxBins': hp.uniform('maxBins', 8, 64),
-# }
+iters = 1
+# Random Forest Hyperopt
+rf_space = {
+    'numTrees': hp.uniform('numTrees', 5, 50),
+    'maxDepth': hp.uniform('maxDepth', 3, 11),
+    'maxBins': hp.uniform('maxBins', 8, 64),
+}
 
-# best_rf_params = train_with_hyperopt(train_model, rf_space, 2, RandomForestClassifier, train_split, test_split, "random forest")
+best_rf_params = train_with_hyperopt(train_model, rf_space, 2, RandomForestClassifier, train_split, "random forest")
 
 iters = 1
 # Logistic Regression Hyperopt
@@ -140,11 +147,26 @@ lr_space = {
     'maxIter' : hp.uniform('maxIter', 5, 25)
 }
 
-best_lr_params = train_with_hyperopt(train_model, lr_space, 2, LogisticRegression, train_split, test_split, "logistic_regression")
+best_lr_params = train_with_hyperopt(train_model, lr_space, 2, LogisticRegression, train_split, "logistic_regression")
 
 
+def train_and_test_best_models(best_model_params, train_split, test_split):
+    with mlflow.start_run(run_name="best models"):
+        for classifier, (model_name, params) in model_params.items():
+            with mlflow.start_run(run_name = model_name):
+                # Create classifier instance with hyperparameters
+                clf = classifier(**params, labelCol="label_prop", featuresCol="features")
 
-# ### FALTA:
-#     - VAL SPLIT
-#     - GUARDAR-SE ELS MILLORS MODELS
-#     - ELS MILLOR MODEL REENTRENARLO AMB TOTES LES DADES DE TRAIN PER DECIDIR EL MILLOR MODEL DE TOTS
+                # Build the ML Pipeline
+                pipeline = Pipeline(stages=[vecAssembler, clf])
+                model = pipeline.fit(train_split)
+
+                # Evaluate the model on test data
+                predictions = model.transform(test_split)
+                test_metric = evaluator.evaluate(predictions)
+
+                mlflow.log_metrics({"AUC": test_metric})
+                mlflow.log_params(params)
+
+model_params = {DecisionTreeClassifier : ["decision_tree",best_dt_params], RandomForestClassifier : ["random_forest",best_rf_params], LogisticRegression : ["logistic regression", best_lr_params]}
+train_and_test_best_models(model_params, train_split, test_split)
