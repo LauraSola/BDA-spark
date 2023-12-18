@@ -62,11 +62,24 @@ if(__name__== "__main__"):
   vecAssembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
 
   train_split, test_split = data_matrix.randomSplit(weights = [0.80, 0.20])
-
-  evaluator = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderROC")
+  
+  evaluator = BinaryClassificationEvaluator(labelCol="label")
+  metric_names = ["areaUnderPR", "areaUnderROC"]
 
   experiment_name = "/spark-bayesian-opt/"
   mlflow.set_experiment(experiment_name)
+
+  def evaluate_models(model, split, metric_names):
+    predictions = model.transform(split)
+    test_AUC = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[0]})
+    test_PR = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[1]})
+    #test_accuracy = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[2]})
+
+    mlflow.log_metrics({"AUC": test_AUC})
+    mlflow.log_metrics({"Precision-Recall": test_PR})
+    #mlflow.log_metrics({"Accuracy": test_accuracy})
+
+    return test_AUC
   
   def train_model(params, classifier, train_split, model_name):
 
@@ -91,11 +104,8 @@ if(__name__== "__main__"):
       model = pipeline.fit(train2_split)
 
       # Evaluate the model
-      
-      predictions = model.transform(val_split)
-      validation_metric = evaluator.evaluate(predictions)
+      AUC_value = evaluate_models(model, val_split, metric_names)
 
-      mlflow.log_metrics({"AUC": validation_metric})
       mlflow.log_params(params)
     
       #mlflow.spark.save_model(model,name)
@@ -105,7 +115,7 @@ if(__name__== "__main__"):
 
       #print(validation_metric)
 
-    return {'loss': -validation_metric, 'status': STATUS_OK}
+    return {'loss': -AUC_value, 'status': STATUS_OK}
 
 def train_with_hyperopt(train_function, space, max_evals, classifier, train_split, model_name):
     
@@ -173,14 +183,12 @@ def train_and_test_best_models(model_params, train_split, test_split):
                 model = pipeline.fit(train_split)
 
                 # Evaluate the model on test data
-                predictions = model.transform(test_split)
-                test_metric = evaluator.evaluate(predictions)
+                AUC_value = evaluate_models(model, test_split, metric_names)
 
-                mlflow.log_metrics({"AUC": test_metric})
                 mlflow.log_params(params)
 
-            if test_metric > best_auc:
-                    best_auc = test_metric
+            if AUC_value > best_auc:
+                    best_auc = AUC_value
                     best_model = model
                     best_params = params
 
