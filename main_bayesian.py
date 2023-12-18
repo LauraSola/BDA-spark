@@ -61,16 +61,16 @@ if(__name__== "__main__"):
   feature_columns = ["flighthours", "flightcycles", "delayedminutes", "avg(value)"] 
   vecAssembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
 
-  train_split, test_split = data_matrix.randomSplit(weights = [0.80, 0.20], seed = 13)
+  train_split, test_split = data_matrix.randomSplit(weights = [0.80, 0.20])
 
-  evaluator = BinaryClassificationEvaluator(labelCol="label_prop", metricName="areaUnderROC")
+  evaluator = BinaryClassificationEvaluator(labelCol="label", metricName="areaUnderROC")
 
-  experiment_name = "/spark-models-tests/"
+  experiment_name = "/spark-bayesian-opt/"
   mlflow.set_experiment(experiment_name)
   
   def train_model(params, classifier, train_split, model_name):
 
-    train2_split, val_split = train_split.randomSplit(weights = [0.80, 0.20], seed = 13)
+    train2_split, val_split = train_split.randomSplit(weights = [0.80, 0.20])
 
     global iters
     name = f"{model_name}_iteration_{iters}"
@@ -84,7 +84,7 @@ if(__name__== "__main__"):
 
       
       # Create classifier instance with hyperparameters
-      clf = classifier(**params, labelCol="label_prop", featuresCol="features" )
+      clf = classifier(**params, labelCol="label", featuresCol="features" )
 
       # Build the ML Pipeline
       pipeline = Pipeline(stages=[vecAssembler, clf])
@@ -118,6 +118,11 @@ def train_with_hyperopt(train_function, space, max_evals, classifier, train_spli
         )
     mlflow.end_run()
 
+    for key in best_params:
+          if key in ['maxBins', 'maxDepth', 'numTrees', 'maxIter']:
+              best_params[key] = int(best_params[key])
+
+
     return best_params
 
 iters = 1
@@ -149,13 +154,19 @@ lr_space = {
 
 best_lr_params = train_with_hyperopt(train_model, lr_space, 2, LogisticRegression, train_split, "logistic_regression")
 
+experiment_name = "/spark-best-models/"
+mlflow.set_experiment(experiment_name)
 
-def train_and_test_best_models(best_model_params, train_split, test_split):
+def train_and_test_best_models(model_params, train_split, test_split):
+    best_auc = float('-inf')  # Inicializar con un valor muy bajo
+    best_model = None
+    best_params = None
+
     with mlflow.start_run(run_name="best models"):
         for classifier, (model_name, params) in model_params.items():
-            with mlflow.start_run(run_name = model_name):
+            with mlflow.start_run(nested = True,run_name = model_name):
                 # Create classifier instance with hyperparameters
-                clf = classifier(**params, labelCol="label_prop", featuresCol="features")
+                clf = classifier(**params, labelCol="label", featuresCol="features")
 
                 # Build the ML Pipeline
                 pipeline = Pipeline(stages=[vecAssembler, clf])
@@ -167,6 +178,22 @@ def train_and_test_best_models(best_model_params, train_split, test_split):
 
                 mlflow.log_metrics({"AUC": test_metric})
                 mlflow.log_params(params)
+
+            if test_metric > best_auc:
+                    best_auc = test_metric
+                    best_model = model
+                    best_params = params
+
+    mlflow.end_run()
+
+    with mlflow.start_run(run_name="final best models"):
+        mlflow.log_metrics({"AUC": best_auc})
+        mlflow.log_params(best_params)
+        mlflow.spark.log_model(best_model, "best model")
+
+    mlflow.end_run()
+
+
 
 model_params = {DecisionTreeClassifier : ["decision_tree",best_dt_params], RandomForestClassifier : ["random_forest",best_rf_params], LogisticRegression : ["logistic regression", best_lr_params]}
 train_and_test_best_models(model_params, train_split, test_split)
