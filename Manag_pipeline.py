@@ -6,19 +6,22 @@ This code performs the construction of the management pipeline. It consists of a
 With all that we will return a matrix with the 7 days labeled whenever there is an operation interruption.
 """
 
-from pyspark.sql.functions import input_file_name, expr, substring, col, date_format, lit
+from pyspark.sql.functions import input_file_name, expr, substring, col, date_format, lit, date_add
 from datetime import timedelta
 
+def label_propagation(df2, OI):
+    # Create column with the timeid plus 7 days
+    df2 = df2.withColumn('7day_timeid', date_add(df2['timeid'], 7))
 
-def management_pipeline(OI, DW, df):
-    # Selection of the attributes we'll need from DW
-    DW = DW.select(['aircraftid', 'timeid', 'flightcycles', 'flighthours', 'delayedminutes'])
+    range_condition = [df2['timeid'] <= OI['timeid_OI'], df2['7day_timeid'] >= OI['timeid_OI'], df2['aircraftid'] == OI['aircraftid_OI']]
+    labels_df = df2.join(OI, range_condition, 'left')
+    labels_df = labels_df.select('aircraftid', 'timeid', 'flightcycles', 'flighthours', 'delayedminutes', 'avg(value)', 'label').distinct()
+    labels_df = labels_df.fillna(0, subset=["label"])
 
-    # Selection and transformation attributes from the operation
-    OI = OI.filter("subsystem = '3453'").withColumn("starttime", date_format(col("starttime"), "yyyy-MM-dd"))\
-        .withColumnRenamed('aircraftregistration', 'aircraftid').withColumnRenamed('starttime', 'timeid') \
-        .select('aircraftid', 'timeid').distinct().withColumn("label", lit(1))
+    return labels_df
 
+
+def dataframe_construction(DW, df):
     # Selection of the last letters of the file name (to extract the flightid) and writing the date in the correct format
     df = df.withColumn("flightid", expr(f"substring(input_file_name(),  length(input_file_name()) - {30} + 1)"))
     df = df.withColumn("aircraftid", substring("flightid", 21, 6))
@@ -30,14 +33,20 @@ def management_pipeline(OI, DW, df):
     # Join between data from the csv (sensors) and DW (KPIs)
     df2 = DW.join(avg_sensors, ['aircraftid','timeid'], how = "inner")
 
-    # Join to add the column with the label to the df with the KPIs and sensors
-    labels_df = df2.join(OI, ['aircraftid','timeid'], how = "left")
+    return df2
 
-    # Map to propagate the rows that have an operation interruption
-    prop_labels = labels_df.filter((labels_df['label']== 1)).rdd.flatMap(lambda t: [((t['timeid'] - timedelta(days=days),t['aircraftid']),t['label']) for days in range(8)])\
-                            .distinct().map(lambda t : (t[0][0], t[0][1], t[1])).toDF(['timeid', 'aircraftid', 'label_prop'])
 
-    matrix = labels_df.join(prop_labels, ['aircraftid','timeid'], how = "left")   
-    matrix = matrix.select(['aircraftid','timeid','flightcycles', 'flighthours', 'delayedminutes', 'avg(value)', 'label_prop']).fillna(0, subset = ['label_prop'])  
+def management_pipeline(OI, DW, df):
+    # Selection of the attributes we'll need from DW
+    DW = DW.select(['aircraftid', 'timeid', 'flightcycles', 'flighthours', 'delayedminutes'])
 
-    return matrix
+    # Selection and transformation attributes from the operation
+    OI = OI.filter("subsystem = '3453'").withColumn("starttime", date_format(col("starttime"), "yyyy-MM-dd"))\
+        .withColumnRenamed('aircraftregistration', 'aircraftid_OI').withColumnRenamed('starttime', 'timeid_OI') \
+        .select('aircraftid_OI', 'timeid_OI').distinct().withColumn("label", lit(1))
+
+    df2 = dataframe_construction(DW, df)
+
+    matrix = label_propagation(df2, OI)
+    
+    matrix.write.options(header='True', delimiter=',').csv("./data_matrix")
