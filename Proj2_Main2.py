@@ -9,6 +9,7 @@ from pyspark.sql.window import Window
 from datetime import timedelta
 
 import Manag_pipeline
+import data_analysis_pipe
 import RT_pipeline
 
 # Building a spark session
@@ -54,9 +55,15 @@ df.show(5)
 
 if(__name__== "__main__"):
       if(sys.argv[1] == "Management Pipeline"):
-            data_matrix = spark.read.csv(Manag_pipeline.management_pipeline(OI, DW, df), header=True, inferSchema=True, sep=";") # CSV with data matrix
+            Manag_pipeline.management_pipeline(OI, DW, df)
       elif(sys.argv[1] = "Data Analysis Pipeline"):
-            print("Models and metrics now accessible in MLflow")
+            if os.path.isfile('./data_matrix.csv'):
+                  print("File Exists")
+                  data_matrix = spark.read.load("./data_matrix.csv")
+                  data_analysis_pipe.data_analysis_pipeline(data_matrix)
+                  print("Models and metrics now accessible in MLflow")
+            else:            
+                  print("File doesn't exists")
       elif(sys.argv[1] = "Runtime Pipeline"):
             print(RT_pipeline.prediction(DW, df))  
 
