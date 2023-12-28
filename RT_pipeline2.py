@@ -25,7 +25,7 @@ def create_data(aircraft, day, dataframe):
     return new_dataframe
 
 
-def dataframe_construction(DW, df):
+def dataframe_construction(DW, df, aircraft, day):
     # Selection of the last letters of the file name (to extract the flightid) and writing the date in the correct format
     df = df.withColumn("flightid", expr(f"substring(input_file_name(),  length(input_file_name()) - {30} + 1)"))
     df = df.withColumn("aircraftid", substring("flightid", 21, 6))
@@ -33,6 +33,10 @@ def dataframe_construction(DW, df):
 
     # Computing the average of the sensor per aircraft per day
     avg_sensors = df.groupBy("aircraftid", "timeid").avg("value")
+
+    # Filtering both datasets so we have only a row with the data we are interested in
+    avg_sensors = avg_sensors.filter((col("aircraftid") == aircraft) & (col("timeid") == day))
+    DW = DW.filter((col("aircraftid") == aircraft) & (col("timeid") == day))
 
     # Join between data from the csv (sensors) and DW (KPIs)
     df2 = DW.join(avg_sensors, ['aircraftid','timeid'], how = "inner")
@@ -46,7 +50,7 @@ def model_prediction(pred_data, 'MODEL'):
 def prediction(DW, df):
     aircraft = input("Aircraft model:")
     day = input("Day in format yyy-mm-dd:")
-    dataframe = dataframe_construction(DW, df)
+    dataframe = dataframe_construction(DW, df, aircraft, day)
     if valid_data(aircraft, day, dataframe):
         pred_data = create_data(aircraft, day, dataframe)
         if model_prediction(pred_data, 'MODEL') == 0:
