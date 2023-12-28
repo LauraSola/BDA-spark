@@ -47,4 +47,4 @@ def management_pipeline(OI, DW, df):
     df2 = dataframe_construction(DW, df)
     matrix = label_propagation(df2, OI)
     
-    return matrix
+    matrix.write.options(header='True', delimiter=',').csv("./data_matrix.csv")
