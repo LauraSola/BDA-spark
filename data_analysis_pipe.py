@@ -129,7 +129,7 @@ def train_and_test_best_models(model_params, train_split, test_split, vecAssembl
 
             # Log hyperparameters and the model using MLFlow
             mlflow.log_params(params)
-            mlflow.spark.log_model(model, model_name)
+            mlflow.spark.log_model(model, model_name, registered_model_name = model_name)
 
         mlflow.end_run()
 
@@ -186,9 +186,6 @@ def data_analysis_pipeline(data_matrix):
     and evaluates the best models using MLFlow.
 
     """
-
-    # Set MLFlow tracking URI
-    mlflow.set_tracking_uri("file:./mlruns")
 
     # Format data accordin to what is expected by the classifier algorithms.
     feature_columns = ["flighthours", "flightcycles", "delayedminutes", "avg(value)"]
