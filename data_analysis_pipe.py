@@ -13,7 +13,7 @@ Along all these steps, MlFlow is used to store the models, their corresponding h
 # Import necessary libraries from PySpark and MLFlow
 from pyspark.ml import Pipeline
 from pyspark.ml.classification import DecisionTreeClassifier, RandomForestClassifier, LogisticRegression
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.feature import VectorAssembler
 import mlflow
 from hyperopt import fmin, tpe, hp, STATUS_OK
@@ -23,7 +23,7 @@ iters = 1
 
 def evaluate_models(model, split):
     """
-    Evaluate the models using the BinaryClassificationEvaluator. Computes AUC and Precision-Recall metrics and logs them using MLFlow.
+    Evaluate the models using the MulticlassClassificationEvaluator. Computes AUC and Precision-Recall metrics and logs them using MLFlow.
     
     """
 
@@ -31,18 +31,22 @@ def evaluate_models(model, split):
     predictions = model.transform(split)
     
     # Define the evaluator and metrics
-    evaluator = BinaryClassificationEvaluator(labelCol="label")
-    metric_names = ["areaUnderPR", "areaUnderROC"]
+    evaluator = MulticlassClassificationEvaluator(labelCol="label")
+    metric_names = ["accuracy", "weightedPrecision", "weightedRecall", "f1"]
 
     # Compute evaluation metrics
-    test_AUC = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[0]})
-    test_PR = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[1]})
+    test_accuracy = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[0]})
+    test_precision = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[1]})
+    test_recall = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[2]})
+    test_f1 = evaluator.evaluate(predictions, {evaluator.metricName: metric_names[3]})
 
     # Log evaluation metrics using MLFlow
-    mlflow.log_metrics({"AUC": test_AUC})
-    mlflow.log_metrics({"Precision-Recall": test_PR})
+    mlflow.log_metrics({"Accuracy": test_accuracy})
+    mlflow.log_metrics({"Precision": test_precision})
+    mlflow.log_metrics({"Recall": test_recall})
+    mlflow.log_metrics({"F1": test_f1})
 
-    return test_AUC
+    return test_accuracy
 
 
 def train_model(params, classifier, train_split, model_name, vecAssembler):
@@ -73,12 +77,12 @@ def train_model(params, classifier, train_split, model_name, vecAssembler):
         model = pipeline.fit(train2_split)
 
         # Evaluate the model
-        AUC_value = evaluate_models(model, val_split)
+        accuracy_value = evaluate_models(model, val_split)
 
         # Log hyperparameters using MLFlow
         mlflow.log_params(params)
 
-    return {'loss': -AUC_value, 'status': STATUS_OK}
+    return {'loss': -accuracy_value, 'status': STATUS_OK}
 
 
 def train_with_hyperopt(train_function, space, max_evals, classifier, train_split, model_name, vecAssembler):
@@ -125,7 +129,7 @@ def train_and_test_best_models(model_params, train_split, test_split, vecAssembl
             model = pipeline.fit(train_split)
 
             # Evaluate the model on the test data
-            AUC_value = evaluate_models(model, test_split)
+            accuracy = evaluate_models(model, test_split)
 
             # Log hyperparameters and the model using MLFlow
             mlflow.log_params(params)
@@ -139,7 +143,7 @@ def train_and_test_best_models(model_params, train_split, test_split, vecAssembl
         experiment_ids=experiment.experiment_id,
         filter_string="",
         max_results=1,
-        order_by=["metrics.AUC DESC"],
+        order_by=["metrics.Accuracy DESC"],
     )[0]
     mlflow.start_run(run_id=best_run.info.run_id)
     mlflow.set_tag("best_model", "this is the best model")
@@ -155,7 +159,7 @@ def train_decision_tree(train_split, vecAssembler):
         'maxDepth': hp.uniform('maxDepth', 3, 11),
         'maxBins': hp.uniform('maxBins', 8, 64),
     }
-    return train_with_hyperopt(train_model, dt_space, 1, DecisionTreeClassifier, train_split, "decision_tree", vecAssembler)
+    return train_with_hyperopt(train_model, dt_space, 8, DecisionTreeClassifier, train_split, "decision_tree", vecAssembler)
 
 def train_random_forest(train_split, vecAssembler):
     global iters
@@ -165,7 +169,7 @@ def train_random_forest(train_split, vecAssembler):
         'maxDepth': hp.uniform('maxDepth', 3, 11),
         'maxBins': hp.uniform('maxBins', 8, 64),
     }
-    return train_with_hyperopt(train_model, rf_space, 1, RandomForestClassifier, train_split, "random forest", vecAssembler)
+    return train_with_hyperopt(train_model, rf_space, 8, RandomForestClassifier, train_split, "random forest", vecAssembler)
 
 def train_logistic_regression(train_split, vecAssembler):
     global iters
@@ -175,7 +179,7 @@ def train_logistic_regression(train_split, vecAssembler):
         'elasticNetParam': hp.uniform('elasticNetParam', 0, 1),
         'maxIter': hp.uniform('maxIter', 5, 25)
     }
-    return train_with_hyperopt(train_model, lr_space, 1, LogisticRegression, train_split, "logistic_regression", vecAssembler)
+    return train_with_hyperopt(train_model, lr_space, 8, LogisticRegression, train_split, "logistic_regression", vecAssembler)
 
 
 
